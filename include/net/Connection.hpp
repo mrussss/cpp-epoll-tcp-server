@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
-#include "BlockQueue.hpp"
+#include "concurrent/BlockQueue.hpp"
+#include "common/Logger.hpp"
 
 constexpr uint32_t MAX_PAYLOAD_SIZE = 4 * 1024 * 1024;
 struct Connection
@@ -11,38 +12,38 @@ struct Connection
     Connection(int fd_, BlockQueue<std::string> *q) : fd(fd_), input_buffer(""), task_queue_ptr(q) {}
     int parse()
     {
-        // LOG_INFO("进入专属 parse,当前 buffer size = %zu", input_buffer.size());
+        // LOG_INFO("entering parse, current buffer size = %zu", input_buffer.size());
         size_t read_index = 0;
 
         while (true)
         {
             size_t remaining = input_buffer.size() - read_index;
-            // [占位：单元三的第一关 - 判断 remaining < 4 的半包拦截]
+            // [Step 1: Check for half-packet (remaining < 4)]
             if (remaining < 4)
             {
                 break;
             }
 
-            // [占位：单元三的第二关 - 提取 4 字节，防 OOM 熔断]
+            // [Step 2: Extract 4-byte length, OOM protection]
             uint32_t network_len = 0;
             std::memcpy(&network_len, input_buffer.data() + read_index, sizeof(uint32_t));
             uint32_t host_len = ntohl(network_len);
-            // LOG_INFO("fd=%d 解析出 Payload 长度为: %u 字节", fd, host_len);
+            // LOG_INFO("fd=%d parsed payload length: %u bytes", fd, host_len);
             if (host_len > MAX_PAYLOAD_SIZE)
             {
-                LOG_ERROR("fd=%d 报文长度异常 (%u bytes)，触发 OOM 熔断，强杀连接！", fd, host_len);
+                LOG_ERROR("fd=%d invalid payload length (%u bytes), triggering OOM protection, closing connection!", fd, host_len);
                 return -1;
             }
 
-            // [占位：单元三的第三关 - 判断 remaining < 4 + expected_len 的半包拦截]
+            // [Step 3: Check for half-packet (remaining < 4 + host_len)]
             if (remaining < 4 + host_len)
             {
                 break;
             }
 
-            // [占位：单元四 - 成功切出一个完整包，read_index 往后挪]
+            // [Step 4: Successfully parsed a packet, advance read_index]
             std::string payload(input_buffer.data() + read_index + 4, host_len);
-            // LOG_INFO("成功切出一个完整包,Payload 长度: %u, 内容: %s", host_len, payload.c_str());
+            // LOG_INFO("successfully parsed a complete packet, payload length: %u, content: %s", host_len, payload.c_str());
             read_index += (4 + host_len);
             if (task_queue_ptr != nullptr)
             {

@@ -18,17 +18,12 @@
 #include <algorithm>
 #include "Connection.hpp"
 #include "BlockQueue.hpp"
+#include "../include/net/SocketUtil.hpp"
 
 volatile sig_atomic_t g_running = 1;
 void sigint_handler(int sig)
 {
     g_running = 0;
-}
-void setNonBlocking(int fd)
-{
-    int flags = fcntl(fd, F_GETFL, 0);
-    flags |= O_NONBLOCK;
-    fcntl(fd, F_SETFL, flags);
 }
 
 int main()
@@ -36,9 +31,9 @@ int main()
     BlockQueue<std::string> task_queue;
     if (std::signal(SIGINT, sigint_handler) == SIG_ERR)
     {
-        std::cerr << "signal 注册失败" << std::endl;
+        std::cerr << "signal registration failed" << std::endl;
     }
-    std::cout << "C++ 程序：按 Ctrl+C 退出" << std::endl;
+    std::cout << "C++ server: press Ctrl+C to exit" << std::endl;
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -56,10 +51,10 @@ int main()
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
     {
-        LOG_INFO("[错误] 致命:setsockopt(SO_REUSEADDR) 失败！端口可能仍处于锁定状态。");
+        LOG_INFO("[FATAL] setsockopt(SO_REUSEADDR) failed! Port might be locked.");
         exit(EXIT_FAILURE);
     }
-    LOG_INFO("[信息] SO_REUSEADDR 特权授予成功，端口复用已开启。");
+    LOG_INFO("[INFO] SO_REUSEADDR enabled.");
 
     int bind_return = bind(listen_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
     if (bind_return == -1)
@@ -105,7 +100,7 @@ int main()
     }
 
     unsigned int worker_count = std::min(hw_cores, 4u);
-    LOG_INFO("系统检测到 %u 个核心，准备拉起 %u 个 Worker 线程...", hw_cores, worker_count);
+    LOG_INFO("System detected %u cores, starting %u worker threads...", hw_cores, worker_count);
     std::vector<std::thread> workers;
     for (unsigned i = 0; i < worker_count; ++i)
     {
@@ -117,10 +112,10 @@ int main()
                                      bool ok = task_queue.pop(item);
                                      if (!ok)
                                      {
-                                        LOG_INFO("Worker %u 收到队列关闭信号，优雅退出。",worker_id);
+                                        LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
                                          break;
                                      }
-                                     LOG_INFO("Worker %u 收到解包数据: %s",worker_id, item.c_str());
+                                     LOG_INFO("Worker %u received payload: %s",worker_id, item.c_str());
                                  } });
     }
 
@@ -202,7 +197,7 @@ int main()
                             int ret = conn.parse();
                             if (ret == -1)
                             {
-                                LOG_ERROR("fd=%d 触发防御熔断，物理拔线！", curr_fd);
+                                LOG_ERROR("fd=%d closing connection due to invalid frame length!", curr_fd);
                                 epoll_ctl(epfd, EPOLL_CTL_DEL, curr_fd, nullptr);
                                 close(curr_fd);
                                 connections.erase(curr_fd);
@@ -222,16 +217,16 @@ int main()
             }
         }
     }
-    LOG_INFO("捕获中止信号，准备执行全链路大扫除...");
+    LOG_INFO("server shutdown started...");
     for (auto &[fd, conn] : connections)
     {
-        LOG_INFO("正在关闭存活的客户端 fd=%d...", fd);
+        LOG_INFO("closing active client fd=%d...", fd);
         close(fd);
     }
     close(listen_fd);
     close(epfd);
     task_queue.stop();
-    LOG_INFO("触发内部队列 stop,等待所有Worker撤退");
+    LOG_INFO("task queue stopped, waiting for all workers to exit");
 
     for (auto &w : workers)
     {
@@ -241,6 +236,6 @@ int main()
         }
     }
 
-    LOG_INFO("Worker军团已彻底安全销毁,系统完美退出。");
+    LOG_INFO("all worker threads exited, system shutdown complete.");
     return 0;
 }
