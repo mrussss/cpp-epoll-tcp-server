@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <cstring>
+#include <arpa/inet.h>
 #include "concurrent/BlockQueue.hpp"
 #include "common/Logger.hpp"
 

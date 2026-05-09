@@ -25,7 +25,7 @@ TcpServer::~TcpServer()
 // =========================================================
 
 TcpServer *TcpServer::instance_ = nullptr;
-void TcpServer::static_sigint_handler(int sig)
+void TcpServer::static_sigint_handler([[maybe_unused]] int sig)
 {
     if (instance_)
     {
@@ -86,10 +86,11 @@ void TcpServer::stop()
     //    - 关闭 listen_fd_ 和 epfd__。
     //    - 调用 task_queue_.stop()。
     //    - 遍历 workers_ 并调用 join()。
-    if (running_ == false)
+    if (is_stopped_)
     {
         return;
     }
+    is_stopped_ = true;
     running_ = false;
     for (auto &[fd, conn] : connections_)
     {
@@ -169,7 +170,8 @@ void TcpServer::initServer()
         perror("epoll_creael failed");
         exit(EXIT_FAILURE);
     }
-    struct epoll_event event = {0};
+    struct epoll_event event;
+    memset(&event, 0, sizeof(event));
     event.events = EPOLLIN | EPOLLET;
     event.data.fd = listen_fd_;
     if (epoll_ctl(epfd_, EPOLL_CTL_ADD, listen_fd_, &event) == -1)
@@ -191,9 +193,6 @@ void TcpServer::loop()
     // 3. if (fd == listen_fd_) { 调用 handleAccept(); }
     // 4. else { 调用 handleRead(fd); }
     epoll_event events[1024];
-    struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-    int fd = 0;
 
     while (running_)
     {
@@ -250,7 +249,8 @@ void TcpServer::handleAccept()
             }
         }
         setNonBlocking(fd);
-        struct epoll_event event1 = {0};
+        struct epoll_event event1;
+        memset(&event1, 0, sizeof(event1));
         event1.events = EPOLLIN | EPOLLET;
         event1.data.fd = fd;
         if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &event1) == -1)

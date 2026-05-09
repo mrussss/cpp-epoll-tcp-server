@@ -30,6 +30,7 @@ private:
     int listen_fd_;
     int epfd_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> is_stopped_{false};
     static TcpServer *instance_;
 
     BlockQueue<std::string> task_queue_;
