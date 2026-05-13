@@ -11,9 +11,11 @@ find_package(Threads REQUIRED)
 include_directories(include)
 
 # 4. 定义要编译的源文件列表
+# 4. 定义要编译的源文件列表
 set(SRC_FILES
     src/main.cpp
     src/net/TcpServer.cpp
+    src/protocol/ProtocolCodec.cpp
 )
 
 # 5. 生成可执行文件

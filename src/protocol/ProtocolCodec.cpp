@@ -90,16 +90,13 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
 
         // 12. 把拼装好的 req 塞进 out_requests 数组
         out_requests.push_back(req);
-        // --- 剪掉废胶带（极其关键） ---
-        // 13. 把刚刚消耗掉的 (4 + host_body_length) 个字节，从 input_buffer 中 erase 掉！
-        read_index += (4 + host_body_length);
-        if (read_index > 0)
-        {
-            input_buffer.erase(0, read_index);
-        }
-        //     然后随着 while 循环进入下一轮，看看剩下的数据还能不能再凑出一个包！
-    }
 
+        read_index += (4 + host_body_length);
+    }
+    if (read_index > 0)
+    {
+        input_buffer.erase(0, read_index);
+    }
     // 循环因为 break 结束，说明剩下的数据不够一个包了，状态是正常的等待
     return DecodeStatus::OK;
 }

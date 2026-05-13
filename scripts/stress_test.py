@@ -13,20 +13,28 @@ def run_client(client_id, msg_count):
         client.connect(('127.0.0.1', 8080))
         
         for i in range(msg_count):
-            # 2. 构造数据。把 client_id 和 i 放进去，方便你在 C++ 服务端看有没有串台
             text = f"[Client-{client_id} Msg-{i}] 这是一条高并发压测数据"
-            payload = text.encode('utf-8')  # 转成字节流
+            payload = text.encode('utf-8')
             
-            # 3. 构造 4 字节的包头
-            # '!I' 的意思是：网络字节序(大端)、无符号整型(4字节)
-            header = struct.pack('!I', len(payload))
+            # V2 协议元数据
+            version = 1
+            msg_type = 1 # 对应 MessageType::PING
+            req_id = client_id * 1000 + i # 随便生成一个唯一 ID
             
-            # 4. 拼成完整报文并发送
-            packet = header + payload
+            # 计算 Body 总长度 = 版本(1) + 类型(1) + ID(8) + 字符串长度
+            body_length = 1 + 1 + 8 + len(payload)
+            
+            # 使用 '!I B B Q' 打包: 
+            # ! = 大端网络字节序
+            # I = 4字节无符号整型 (body_length)
+            # B = 1字节无符号整型 (version)
+            # B = 1字节无符号整型 (msg_type)
+            # Q = 8字节无符号长整型 (req_id)
+            header_and_meta = struct.pack('!IBBQ', body_length, version, msg_type, req_id)
+            
+            packet = header_and_meta + payload
             client.send(packet)
-            
-            # 模拟真实网络中非常微小的延迟，防止直接把本地网卡缓冲区瞬间塞死
-            time.sleep(0.001) 
+            time.sleep(0.001)
             
         # 发送完毕，正常断开连接。这会向 C++ 发送一个 EOF，触发 recv == 0
         client.close()

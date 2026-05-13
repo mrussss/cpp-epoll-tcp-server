@@ -7,6 +7,7 @@
 #include <string>
 #include <sys/epoll.h>
 #include "net/Connection.hpp"
+#include "protocol/Request.hpp"
 #include "concurrent/BlockQueue.hpp"
 
 class TcpServer
@@ -33,7 +34,7 @@ private:
     std::atomic<bool> is_stopped_{false};
     static TcpServer *instance_;
 
-    BlockQueue<std::string> task_queue_;
+    BlockQueue<Request> task_queue_;
     std::unordered_map<int, Connection> connections_;
     std::vector<std::thread> workers_;
 };

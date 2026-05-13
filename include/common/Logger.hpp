@@ -2,24 +2,26 @@
 #include <iostream>
 #include <thread>
 #include <cstdio>
-#include <functional> // 必须引入这个来使用 std::hash
+#include <functional>
 #include <mutex>
 
 inline std::mutex g_log_mutex;
 
-// 使用哈希函数将 thread::id 转换为唯一的无符号整数 (size_t)
-#define LOG_INFO(fmt, ...)                                                                                                \
-    do                                                                                                                    \
-    {                                                                                                                     \
-        std::lock_guard<std::mutex> lock(g_log_mutex);                                                                    \
-                                                                                                                          \
-        printf("[INFO] [Thread %zu] " fmt "\n", std::hash<std::thread::id>{}(std::this_thread::get_id()), ##__VA_ARGS__); \
-    } while (0)
+// 【现代 C++ 升级】使用可变参数模板替换掉老旧的 C 风格宏
+template <typename... Args>
+inline void LOG_INFO(const char *fmt, Args... args)
+{
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    printf("[INFO] [Thread %zu] ", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    printf(fmt, args...);
+    printf("\n");
+}
 
-#define LOG_ERROR(fmt, ...)                                                                                                         \
-    do                                                                                                                              \
-    {                                                                                                                               \
-        std::lock_guard<std::mutex> lock(g_log_mutex);                                                                              \
-                                                                                                                                    \
-        fprintf(stderr, "[ERROR] [Thread %zu] " fmt "\n", std::hash<std::thread::id>{}(std::this_thread::get_id()), ##__VA_ARGS__); \
-    } while (0)
+template <typename... Args>
+inline void LOG_ERROR(const char *fmt, Args... args)
+{
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    fprintf(stderr, "[ERROR] [Thread %zu] ", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    fprintf(stderr, fmt, args...);
+    fprintf(stderr, "\n");
+}

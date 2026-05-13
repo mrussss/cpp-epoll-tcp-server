@@ -1,6 +1,3 @@
-#include "net/TcpServer.hpp"
-#include "net/SocketUtil.hpp"
-#include "common/Logger.hpp"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -9,7 +6,11 @@
 #include <atomic>
 #include <csignal>
 #include <cerrno>
-
+#include "net/TcpServer.hpp"
+#include "net/SocketUtil.hpp"
+#include "protocol/Request.hpp"
+#include "protocol/ProtocolCodec.hpp"
+#include "common/Logger.hpp"
 // =========================================================
 // 1. 构造与析构
 // =========================================================
@@ -60,17 +61,22 @@ void TcpServer::start()
     {
         workers_.emplace_back([this, worker_id = i]()
                               {
-                                 while (true)
-                                 {
-                                     std::string item;
-                                     bool ok = task_queue_.pop(item);
-                                     if (!ok)
-                                     {
-                                        LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
-                                         break;
-                                     }
-                                     LOG_INFO("Worker %u received payload: %s",worker_id, item.c_str());
-                                 } });
+             while (true)
+            {
+                Request req;
+                bool ok = task_queue_.pop(req);
+                if (!ok)
+                {
+                    LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
+                     break;
+                }
+                LOG_INFO("Worker %u successfully parsed Request! fd=%d, type=%d, id=%llu, payload=%s", 
+                worker_id,
+                req.fd, 
+                static_cast<int>(req.type),  
+                (unsigned long long)req.request_id,
+                req.payload.c_str());
+            } });
     }
     loop();
 }
@@ -185,13 +191,7 @@ void TcpServer::initServer()
 
 void TcpServer::loop()
 {
-    // [你的搬运任务]
-    // 把原来 main() 里面的 while (g_running) {...} 结构搬过来。
-    // 注意调整：
-    // 1. 循环条件改成 while (running_)
-    // 2. epoll_wait 拿到 nfds 后，for 循环遍历事件
-    // 3. if (fd == listen_fd_) { 调用 handleAccept(); }
-    // 4. else { 调用 handleRead(fd); }
+
     epoll_event events[1024];
 
     while (running_)
@@ -260,7 +260,7 @@ void TcpServer::handleAccept()
             exit(EXIT_FAILURE);
         }
         LOG_INFO("New connection: fd=%d", fd);
-        connections_.insert({fd, Connection(fd, &task_queue_)});
+        connections_.insert({fd, Connection(fd)});
     }
 }
 
@@ -288,20 +288,33 @@ void TcpServer::handleRead(int fd)
         }
         else if (bytes_read == 0)
         {
-            conn.parse();
-            LOG_INFO("Client disconnected: fd=%d, cleaning up...", fd);
+            std::vector<Request> out_requests;
+            ProtocolCodec::decode(conn.input_buffer, fd, out_requests);
+            for (const auto &req : out_requests)
+            {
+                task_queue_.push(req);
+            }
             closeConnection(fd);
             break;
         }
-        else
+        else if (bytes_read == -1)
         {
+
             if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                int ret = conn.parse();
-                if (ret == -1)
+                std::vector<Request> out_requests;
+                DecodeStatus status = ProtocolCodec::decode(conn.input_buffer, fd, out_requests);
+                if (status == DecodeStatus::INVALID_LENGTH)
                 {
-                    LOG_ERROR("fd=%d closing connection due to invalid frame length!", fd);
+                    // 🚨 触发防御：打印日志，干掉这个连接
                     closeConnection(fd);
+                    break;
+                }
+
+                // 正常：遍历 out_requests，依次推入任务队列
+                for (auto &req : out_requests)
+                {
+                    task_queue_.push(req);
                 }
                 break;
             }
