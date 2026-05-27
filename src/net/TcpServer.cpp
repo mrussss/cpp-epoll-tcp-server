@@ -10,6 +10,7 @@
 #include "net/SocketUtil.hpp"
 #include "protocol/Request.hpp"
 #include "protocol/ProtocolCodec.hpp"
+#include "business/Dispatcher.hpp"
 #include "common/Logger.hpp"
 // =========================================================
 // 1. 构造与析构
@@ -61,6 +62,7 @@ void TcpServer::start()
     {
         workers_.emplace_back([this, worker_id = i]()
                               {
+            business::Dispatcher Dispatch;
              while (true)
             {
                 Request req;
@@ -70,12 +72,14 @@ void TcpServer::start()
                     LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
                      break;
                 }
-                LOG_INFO("Worker %u successfully parsed Request! fd=%d, type=%d, id=%llu, payload=%s", 
+                Response resp = Dispatch.dispatch(req);
+                response_queue_.push(resp);
+                LOG_INFO("Worker %u generated Response! fd=%d, type=%d, id=%llu, payload=%s", 
                 worker_id,
-                req.fd, 
-                static_cast<int>(req.type),  
-                (unsigned long long)req.request_id,
-                req.payload.c_str());
+                resp.fd, 
+                static_cast<int>(resp.type),  
+                (unsigned long long)resp.request_id,
+                resp.payload.c_str());
             } });
     }
     loop();
