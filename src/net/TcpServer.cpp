@@ -64,7 +64,7 @@ void TcpServer::start()
              while (true)
             {
                 Request req;
-                bool ok = task_queue_.pop(req);
+                bool ok = request_queue_.pop(req);
                 if (!ok)
                 {
                     LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
@@ -90,7 +90,7 @@ void TcpServer::stop()
     // 3. 把原来 main() 最后面 "准备执行全链路大扫除" 下方的代码搬过来：
     //    - 遍历 connections__，调用 close() 关掉存活的 fd。
     //    - 关闭 listen_fd_ 和 epfd__。
-    //    - 调用 task_queue_.stop()。
+    //    - 调用 request_queue_.stop()。
     //    - 遍历 workers_ 并调用 join()。
     if (is_stopped_)
     {
@@ -105,7 +105,7 @@ void TcpServer::stop()
     }
     close(listen_fd_);
     close(epfd_);
-    task_queue_.stop();
+    request_queue_.stop();
     LOG_INFO("task queue stopped, waiting for all workers to exit");
 
     for (auto &w : workers_)
@@ -292,7 +292,7 @@ void TcpServer::handleRead(int fd)
             ProtocolCodec::decode(conn.input_buffer, fd, out_requests);
             for (const auto &req : out_requests)
             {
-                task_queue_.push(req);
+                request_queue_.push(req);
             }
             closeConnection(fd);
             break;
@@ -314,7 +314,7 @@ void TcpServer::handleRead(int fd)
                 // 正常：遍历 out_requests，依次推入任务队列
                 for (auto &req : out_requests)
                 {
-                    task_queue_.push(req);
+                    request_queue_.push(req);
                 }
                 break;
             }

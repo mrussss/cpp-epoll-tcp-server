@@ -14,12 +14,17 @@ private:
     bool _is_stopped = false;
 
 public:
-    void push(const T &item)
+    bool push(const T &item)
     {
         std::lock_guard<std::mutex> lock(mtx);
+        if (_is_stopped == true)
+        {
+            return false;
+        }
 
         data_queue.push(item);
         cv_.notify_one();
+        return true;
     }
     bool pop(T &item)
     {
@@ -40,5 +45,10 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         _is_stopped = true;
         cv_.notify_all();
+    }
+    size_t size()
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        return data_queue.size();
     }
 };

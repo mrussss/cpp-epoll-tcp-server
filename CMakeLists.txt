@@ -14,8 +14,15 @@ include_directories(include)
 # 4. 定义要编译的源文件列表
 set(SRC_FILES
     src/main.cpp
+    
     src/net/TcpServer.cpp
+    
     src/protocol/ProtocolCodec.cpp
+
+    src/business/Dispatcher.cpp
+    src/business/Handlers.cpp
+    src/business/StatsManager.cpp
+    src/business/LogStorage.cpp
 )
 
 # 5. 生成可执行文件
