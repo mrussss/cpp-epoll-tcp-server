@@ -40,6 +40,18 @@ public:
         return true;
     }
 
+    bool Try_pop(T &item)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (data_queue.empty() || _is_stopped)
+        {
+            return false;
+        }
+        item = std::move(data_queue.front());
+        data_queue.pop();
+        return true;
+    }
+
     void stop()
     {
         std::lock_guard<std::mutex> lock(mtx);

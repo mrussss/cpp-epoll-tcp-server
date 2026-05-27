@@ -331,6 +331,43 @@ void TcpServer::handleRead(int fd)
         }
     }
 }
+
+void TcpServer::handleWrite(int fd)
+{
+    auto it = connections_.find(fd);
+    if (it == connections_.end())
+        return;
+    Connection &conn = it->second;
+    while (!conn.output_buffer.empty())
+    {
+        ssize_t sent_bytes = send(fd, conn.output_buffer.data(), conn.output_buffer.size(), 0);
+        if (sent_bytes > 0)
+        {
+            conn.output_buffer.erase(0, sent_bytes);
+        }
+        else if (sent_bytes == -1)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break;
+            }
+            else
+            {
+                closeConnection(fd);
+                return;
+            }
+        }
+        if (conn.output_buffer.empty())
+        {
+            struct epoll_event event;
+            memset(&event, 0, sizeof(event));
+            event.events = EPOLLIN | EPOLLET;
+            event.data.fd = fd;
+            epoll_ctl(epfd_, EPOLL_CTL_MOD, fd, &event);
+        }
+    }
+}
+
 void TcpServer::closeConnection(int fd)
 {
     // [你的搬运任务]
