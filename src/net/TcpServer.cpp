@@ -6,6 +6,7 @@
 #include <atomic>
 #include <csignal>
 #include <cerrno>
+#include "concurrent/BlockQueue.hpp"
 #include "net/TcpServer.hpp"
 #include "net/SocketUtil.hpp"
 #include "protocol/Request.hpp"
@@ -367,6 +368,28 @@ void TcpServer::handleWrite(int fd)
         }
     }
 }
+
+void TcpServer::drainResponseQueue()
+{
+    Response resp;
+    while (response_queue_.Try_pop(resp))
+    {
+        auto it = connections_.find(resp.fd);
+        if (it == connections_.end())
+        {
+            LOG_INFO("Client has disconnected.");
+            continue;
+        }
+        Connection &conn = it->second;
+        std::string encoded_data = ProtocolCodec::encode(resp);
+        conn.output_buffer.append(encoded_data);
+        struct epoll_event event;
+        memset(&event, 0, sizeof(event));
+        event.events = EPOLLIN | EPOLLOUT | EPOLLET;
+        event.data.fd = resp.fd;
+        epoll_ctl(epfd_, EPOLL_CTL_MOD, resp.fd, &event);
+    }
+};
 
 void TcpServer::closeConnection(int fd)
 {

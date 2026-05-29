@@ -27,6 +27,7 @@ private:
     void handleAccept();
     void handleRead(int fd);
     void handleWrite(int fd);
+    void drainResponseQueue();
     void closeConnection(int fd);
 
     int port_;
