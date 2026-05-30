@@ -201,7 +201,7 @@ void TcpServer::loop()
 
     while (running_)
     {
-        int nfds = epoll_wait(epfd_, events, 1024, 1000);
+        int nfds = epoll_wait(epfd_, events, 1024, 100);
         if (nfds == -1)
         {
             if (errno == EINTR)
@@ -220,10 +220,17 @@ void TcpServer::loop()
             }
             else
             {
-
-                handleRead(fd);
+                if (events[i].events & EPOLLIN)
+                {
+                    handleRead(fd);
+                }
+                if (events[i].events & EPOLLOUT)
+                {
+                    handleWrite(fd);
+                }
             }
         }
+        drainResponseQueue();
     }
 }
 

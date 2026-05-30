@@ -5,8 +5,7 @@
 namespace business
 {
 
-    Response
-    Dispatcher::dispatch(const Request &request)
+    Response Dispatcher::dispatch(const Request &request)
     {
         switch (request.type)
         {
