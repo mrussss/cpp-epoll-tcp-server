@@ -20,6 +20,18 @@ public:
     void start();
     void stop();
     static void static_sigint_handler(int sig);
+    static TcpServer *getInstance()
+    {
+        return instance_;
+    }
+    size_t getRequestQueueSize()
+    {
+        return request_queue_.size();
+    }
+    size_t getResponseQueueSize()
+    {
+        return response_queue_.size();
+    }
 
 private:
     void initServer();

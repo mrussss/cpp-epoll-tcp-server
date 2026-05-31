@@ -37,5 +37,20 @@ namespace business
     {
         return total_errors_.load();
     }
-
+    void StatsManager::incrementReadBytes(size_t byte_nums)
+    {
+        total_bytes_read.fetch_add(byte_nums);
+    }
+    void StatsManager::incrementWriteBytes(size_t byte_nums)
+    {
+        total_bytes_sent.fetch_add(byte_nums);
+    }
+    void StatsManager::incrementConnection()
+    {
+        active_connections++;
+    }
+    void StatsManager::decrementConnection()
+    {
+        active_connections--;
+    }
 }

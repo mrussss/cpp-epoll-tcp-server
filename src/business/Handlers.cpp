@@ -1,4 +1,7 @@
 #include <string>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #include "business/Handlers.hpp"
 #include "protocol/MessageType.hpp"
 #include "business/StatsManager.hpp"
@@ -34,8 +37,18 @@ namespace business
         resp.fd = request.fd;
         resp.version = request.version;
         resp.request_id = request.request_id;
+
+        std::time_t now = std::time(nullptr);
+        struct tm time_info;
+        localtime_r(&now, &time_info);
+        std::ostringstream oss;
+        oss << std::put_time(&time_info, "[%Y-%m-%d %H:%M:%S]")
+            << " fd=" << request.fd
+            << " request_id=" << request.request_id
+            << " payload=" << request.payload;
+
         StatsManager::getInstance().incrementRequests();
-        bool is_written = LogStorage::getInstance().append(request.payload);
+        bool is_written = LogStorage::getInstance().append(oss.str());
         if (is_written)
         {
             StatsManager::getInstance().incrementLogMessages();
@@ -46,7 +59,9 @@ namespace business
         else
         {
             StatsManager::getInstance().incrementErrors();
-            return makeErrorResponse(request);
+            resp.type = MessageType::ERROR_RESP;
+            resp.payload = R"({"status":500, "message":"log write failed."})";
+            return resp;
         }
     }
     Response handleStats(const Request &request)
@@ -75,7 +90,7 @@ namespace business
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::ERROR_RESP;
-        resp.payload = R"({"status":400."message":"unknown type"})";
+        resp.payload = R"({"status":400,"message":"unknown type"})";
         return resp;
     }
 

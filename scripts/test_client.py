@@ -76,6 +76,15 @@ if __name__ == '__main__':
     # ---------------------------------------------------------
     send_request_and_wait_response(client, msg_type=2, payload_str="Hello Epoll Server!", req_id=1002)
     
+# ... 原来的 PING 和 ECHO 测试 ...
+
+    # ---------------------------------------------------------
+    # 测试场景 3：发送 LOG_PUSH (MessageType::LOG_PUSH = 3)
+    # 期望：服务端将这条消息落盘，并返回 LOG_ACK (Type = 8)
+    # ---------------------------------------------------------
+    log_payload = '{"level":"INFO", "service":"auth-service", "message":"user login success"}'
+    send_request_and_wait_response(client, msg_type=3, payload_str=log_payload, req_id=1003)
+    
     time.sleep(1)
     client.close()
     print("\n✅ 所有测试流执行完毕，连接关闭。")

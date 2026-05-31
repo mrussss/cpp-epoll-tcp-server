@@ -11,7 +11,7 @@ namespace business
 
     LogStorage::LogStorage()
     {
-        m_ofs.open("record.txt", std::ios::app);
+        m_ofs.open("../logs/access.log", std::ios::app);
     }
 
     bool LogStorage::append(const std::string &log_line)

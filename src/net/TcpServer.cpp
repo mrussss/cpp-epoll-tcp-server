@@ -12,6 +12,7 @@
 #include "protocol/Request.hpp"
 #include "protocol/ProtocolCodec.hpp"
 #include "business/Dispatcher.hpp"
+#include "business/StatsManager.hpp"
 #include "common/Logger.hpp"
 // =========================================================
 // 1. 构造与析构
@@ -273,6 +274,7 @@ void TcpServer::handleAccept()
         }
         LOG_INFO("New connection: fd=%d", fd);
         connections_.insert({fd, Connection(fd)});
+        business::StatsManager::getInstance().incrementConnection();
     }
 }
 
@@ -296,6 +298,7 @@ void TcpServer::handleRead(int fd)
         if (bytes_read > 0)
         {
             conn.input_buffer.append(buf, bytes_read);
+            business::StatsManager::getInstance().incrementReadBytes(bytes_read);
             LOG_INFO("fd=%d received %zd bytes", fd, bytes_read);
         }
         else if (bytes_read == 0)
@@ -352,6 +355,7 @@ void TcpServer::handleWrite(int fd)
         if (sent_bytes > 0)
         {
             conn.output_buffer.erase(0, sent_bytes);
+            business::StatsManager::getInstance().incrementWriteBytes(sent_bytes);
         }
         else if (sent_bytes == -1)
         {
@@ -408,4 +412,5 @@ void TcpServer::closeConnection(int fd)
     epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
     connections_.erase(fd);
+    business::StatsManager::getInstance().decrementConnection();
 }
