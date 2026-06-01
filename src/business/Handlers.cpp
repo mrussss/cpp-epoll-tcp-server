@@ -6,6 +6,7 @@
 #include "protocol/MessageType.hpp"
 #include "business/StatsManager.hpp"
 #include "business/LogStorage.hpp"
+#include "net/TcpServer.hpp"
 
 namespace business
 {
@@ -33,6 +34,42 @@ namespace business
 
     Response handleLogPush(const Request &request)
     {
+        if (request.payload.empty())
+        {
+            StatsManager::getInstance().incrementErrors();
+            Response resp;
+            resp.fd = request.fd;
+            resp.version = request.version;
+            resp.request_id = request.request_id;
+            resp.type = MessageType::ERROR_RESP;
+            resp.payload = R"({"payload is empty"})";
+            return resp;
+        }
+        if (request.payload.size() > 4096)
+        {
+            StatsManager::getInstance().incrementErrors();
+            Response resp;
+            resp.fd = request.fd;
+            resp.version = request.version;
+            resp.request_id = request.request_id;
+            resp.type = MessageType::ERROR_RESP;
+            resp.payload = R"({"payload too large"})";
+            return resp;
+        }
+        if (request.payload.find("level") == std::string::npos ||
+            request.payload.find("service") == std::string::npos ||
+            request.payload.find("message") == std::string::npos)
+        {
+            StatsManager::getInstance().incrementErrors();
+            Response resp;
+            resp.fd = request.fd;
+            resp.version = request.version;
+            resp.request_id = request.request_id;
+            resp.type = MessageType::ERROR_RESP;
+            resp.payload = R"({"invalid log format"})";
+            return resp;
+        }
+
         Response resp;
         resp.fd = request.fd;
         resp.version = request.version;
@@ -71,15 +108,35 @@ namespace business
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::STATA_RESP;
+
         uint64_t requests = StatsManager::getInstance().getTotalRequests();
         uint64_t logMessages = StatsManager::getInstance().getTotalLogMessages();
         uint64_t errors = StatsManager::getInstance().getTotalErrors();
-        std::string json = "\"total_requests\": ";
+        uint64_t recv_bytes = StatsManager::getInstance().getReadBytes();
+        uint64_t sent_bytes = StatsManager::getInstance().getWriteBytes();
+        uint64_t active_connections = StatsManager::getInstance().getConnections();
+
+        TcpServer *instance_ = TcpServer::getInstance();
+        uint64_t request_queue_backlog = instance_->getRequestQueueSize();
+        uint64_t response_queue_backlog = instance_->getResponseQueueSize();
+
+        std::string json = "{\"total_requests\": ";
         json += std::to_string(requests);
         json += ", \"total_logs\": ";
         json += std::to_string(logMessages);
         json += ", \"total_errors\": ";
         json += std::to_string(errors);
+        json += ", \"total_recv_bytes\": ";
+        json += std::to_string(recv_bytes);
+        json += ", \"total_sent_bytes\": ";
+        json += std::to_string(sent_bytes);
+        json += ", \"active_connections\": ";
+        json += std::to_string(active_connections);
+        json += ", \"total_request_queue_backlog\": ";
+        json += std::to_string(request_queue_backlog);
+        json += ", \"total_response_queue_backlog\": ";
+        json += std::to_string(response_queue_backlog);
+        json += "}";
         resp.payload = json;
         return resp;
     }

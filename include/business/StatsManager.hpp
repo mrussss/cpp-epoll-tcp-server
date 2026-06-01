@@ -18,12 +18,15 @@ namespace business
         void incrementErrors();
         void incrementReadBytes(size_t byte_nums);
         void incrementWriteBytes(size_t byte_nums);
-        void incrementConnection();
-        void decrementConnection();
+        void incrementConnections();
+        void decrementConnections();
 
         uint64_t getTotalRequests() const;
         uint64_t getTotalLogMessages() const;
         uint64_t getTotalErrors() const;
+        uint64_t getReadBytes() const;
+        uint64_t getWriteBytes() const;
+        uint64_t getConnections() const;
 
     private:
         StatsManager() = default;

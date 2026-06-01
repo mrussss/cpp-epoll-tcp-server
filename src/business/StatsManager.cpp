@@ -41,16 +41,35 @@ namespace business
     {
         total_bytes_read.fetch_add(byte_nums);
     }
+
+    uint64_t StatsManager::getReadBytes() const
+    {
+        return total_bytes_read.load();
+    }
+
     void StatsManager::incrementWriteBytes(size_t byte_nums)
     {
         total_bytes_sent.fetch_add(byte_nums);
     }
-    void StatsManager::incrementConnection()
+
+    uint64_t StatsManager::getWriteBytes() const
+    {
+        return total_bytes_sent.load();
+    }
+
+    void StatsManager::incrementConnections()
     {
         active_connections++;
     }
-    void StatsManager::decrementConnection()
+
+    void StatsManager::decrementConnections()
     {
         active_connections--;
     }
+
+    uint64_t StatsManager::getConnections() const
+    {
+        return active_connections.load();
+    }
+
 }

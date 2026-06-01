@@ -274,7 +274,7 @@ void TcpServer::handleAccept()
         }
         LOG_INFO("New connection: fd=%d", fd);
         connections_.insert({fd, Connection(fd)});
-        business::StatsManager::getInstance().incrementConnection();
+        business::StatsManager::getInstance().incrementConnections();
     }
 }
 
@@ -412,5 +412,5 @@ void TcpServer::closeConnection(int fd)
     epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr);
     close(fd);
     connections_.erase(fd);
-    business::StatsManager::getInstance().decrementConnection();
+    business::StatsManager::getInstance().decrementConnections();
 }
