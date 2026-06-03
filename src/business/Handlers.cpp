@@ -45,7 +45,7 @@ namespace business
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"payload is empty"})";
+            resp.payload = R"({"status":400,"message":"payload is empty"})";
             return resp;
         }
         if (request.payload.size() > 4096)
@@ -57,7 +57,7 @@ namespace business
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"payload too large"})";
+            resp.payload = R"({"status":400,"message":"payload too large"})";
             return resp;
         }
         if (request.payload.find("level") == std::string::npos ||
@@ -71,7 +71,7 @@ namespace business
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"invalid log format"})";
+            resp.payload = R"({"status":400,"message":"invalid log format"})";
             return resp;
         }
 
@@ -90,7 +90,6 @@ namespace business
             << " request_id=" << request.request_id
             << " payload=" << request.payload;
 
-        StatsManager::getInstance().incrementRequests();
         bool is_written = LogStorage::getInstance().append(oss.str());
         if (is_written)
         {

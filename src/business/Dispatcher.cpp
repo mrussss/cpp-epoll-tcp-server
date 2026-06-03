@@ -1,5 +1,6 @@
 #include "business/Dispatcher.hpp"
 #include "business/Handlers.hpp"
+#include "business/StatsManager.hpp"
 #include "protocol/MessageType.hpp"
 
 namespace business
@@ -7,6 +8,7 @@ namespace business
 
     Response Dispatcher::dispatch(const Request &request)
     {
+        StatsManager::getInstance().incrementRequests();
         switch (request.type)
         {
         case MessageType::PING:

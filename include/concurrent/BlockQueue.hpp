@@ -43,7 +43,7 @@ public:
     bool Try_pop(T &item)
     {
         std::lock_guard<std::mutex> lock(mtx);
-        if (data_queue.empty() || _is_stopped)
+        if (data_queue.empty())
         {
             return false;
         }
