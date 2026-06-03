@@ -42,6 +42,7 @@ private:
     void drainResponseQueue();
     void closeConnection(int fd);
     bool decodeAndEnqueue(Connection &conn);
+    bool modifyConnectionEvents(int fd, uint32_t events);
 
     int port_;
     int listen_fd_;

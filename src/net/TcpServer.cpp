@@ -322,9 +322,9 @@ void TcpServer::handleAccept()
         event1.data.fd = fd;
         if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &event1) == -1)
         {
-            perror("epoll_ctl:fd add failed");
-            close(epfd_);
-            exit(EXIT_FAILURE);
+            LOG_INFO("epoll_ctl ADD client fd=%d failed, errno=%d", fd, errno);
+            close(fd);
+            continue;
         }
         LOG_INFO("New connection: fd=%d", fd);
         uint64_t conn_id = next_conn_id_.fetch_add(1);
@@ -408,11 +408,10 @@ void TcpServer::handleWrite(int fd)
         }
         if (conn.output_buffer.empty())
         {
-            struct epoll_event event;
-            memset(&event, 0, sizeof(event));
-            event.events = EPOLLIN | EPOLLET;
-            event.data.fd = fd;
-            epoll_ctl(epfd_, EPOLL_CTL_MOD, fd, &event);
+            if (!modifyConnectionEvents(fd, EPOLLIN | EPOLLET))
+            {
+                return;
+            }
         }
     }
 }
@@ -444,11 +443,10 @@ void TcpServer::drainResponseQueue()
         }
 
         conn.output_buffer.append(encoded_data);
-        struct epoll_event event;
-        memset(&event, 0, sizeof(event));
-        event.events = EPOLLIN | EPOLLOUT | EPOLLET;
-        event.data.fd = resp.fd;
-        epoll_ctl(epfd_, EPOLL_CTL_MOD, resp.fd, &event);
+        if (!modifyConnectionEvents(resp.fd, EPOLLIN | EPOLLOUT | EPOLLET))
+        {
+            continue;
+        }
     }
 };
 
@@ -473,15 +471,37 @@ bool TcpServer::decodeAndEnqueue(Connection &conn)
     return true;
 }
 
+bool TcpServer::modifyConnectionEvents(int fd, uint32_t events)
+{
+    struct epoll_event event;
+    memset(&event, 0, sizeof(event));
+    event.events = events;
+    event.data.fd = fd;
+
+    if (epoll_ctl(epfd_, EPOLL_CTL_MOD, fd, &event) == -1)
+    {
+        LOG_INFO("epoll_ctl MOD failed fd=%d errno=%d", fd, errno);
+        closeConnection(fd);
+        return false;
+    }
+
+    return true;
+}
+
 void TcpServer::closeConnection(int fd)
 {
-    // [你的搬运任务]
-    // 这个动作在原来代码里被复制粘贴了三次，现在统一收拢在这里：
-    // 1. epoll_ctl(epfd__, EPOLL_CTL_DEL, fd, nullptr);
-    // 2. close(fd);
-    // 3. connections__.erase(fd);
-    epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr);
+    auto it = connections_.find(fd);
+    if (it == connections_.end())
+    {
+        return;
+    }
+
+    if (epfd_ != -1)
+    {
+        epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr);
+    }
+
     close(fd);
-    connections_.erase(fd);
+    connections_.erase(it);
     business::StatsManager::getInstance().decrementConnections();
 }
