@@ -7,6 +7,7 @@
 struct Response
 {
     int fd;
+    uint64_t conn_id;
     uint8_t version;
     MessageType type;
     uint64_t request_id;

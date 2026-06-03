@@ -3,6 +3,12 @@
 #include <arpa/inet.h>
 #include <endian.h>
 
+namespace
+{
+    constexpr uint32_t FIXED_BODY_SIZE = 1 + 1 + 8;
+    constexpr uint32_t MAX_BODY_SIZE = MAX_PAYLOAD_SIZE + FIXED_BODY_SIZE;
+}
+
 std::string ProtocolCodec::encode(const Response &response)
 {
 
@@ -32,9 +38,10 @@ std::string ProtocolCodec::encode(const Response &response)
     return result;
 }
 
-DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vector<Request> &out_requests)
+DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vector<Request> &out_requests, uint64_t conn_id)
 {
     size_t read_index = 0;
+    bool need_more_data = false;
     while (true)
     {
 
@@ -44,6 +51,7 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
         //    如果是，说明半包，直接 break 跳出循环，等下次数据来
         if (remaining < 4)
         {
+            need_more_data = true;
             break;
         }
         // --- 提取长度 ---
@@ -56,7 +64,7 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
         // --- 边界条件 2：恶意攻击防御 ---
         // 4. 判断 host_body_length 是否大于 MAX_PAYLOAD_SIZE (比如设定为 4MB)
         //    如果是，不要再等了，直接 return DecodeStatus::INVALID_LENGTH;
-        if (host_body_length > MAX_PAYLOAD_SIZE)
+        if (host_body_length < FIXED_BODY_SIZE || host_body_length > MAX_BODY_SIZE)
         {
             return DecodeStatus::INVALID_LENGTH;
         }
@@ -65,6 +73,7 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
         //    如果是，说明包裹只到了一半（半包），直接 break 跳出循环
         if (remaining < (4 + host_body_length))
         {
+            need_more_data = true;
             break;
         }
 
@@ -85,9 +94,10 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
         uint64_t request_id_net;
         std::memcpy(&request_id_net, input_buffer.data() + read_index + 6, 8); // 把 8 字节拷入 64位变量
         req.request_id = be64toh(request_id_net);                              // 转换
-        req.payload = std::string(input_buffer.data() + read_index + 14, host_body_length - 10);
+        size_t payload_length = host_body_length - FIXED_BODY_SIZE;
+        req.payload = std::string(input_buffer.data() + read_index + 14, payload_length);
         req.fd = fd;
-
+        req.conn_id = conn_id;
         // 12. 把拼装好的 req 塞进 out_requests 数组
         out_requests.push_back(req);
 
@@ -98,5 +108,5 @@ DecodeStatus ProtocolCodec::decode(std::string &input_buffer, int fd, std::vecto
         input_buffer.erase(0, read_index);
     }
     // 循环因为 break 结束，说明剩下的数据不够一个包了，状态是正常的等待
-    return DecodeStatus::OK;
+    return need_more_data ? DecodeStatus::NEED_MORE_DATA : DecodeStatus::OK;
 }

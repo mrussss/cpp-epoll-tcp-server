@@ -41,13 +41,15 @@ private:
     void handleWrite(int fd);
     void drainResponseQueue();
     void closeConnection(int fd);
+    bool decodeAndEnqueue(Connection &conn);
 
     int port_;
     int listen_fd_;
     int epfd_;
+    static TcpServer *instance_;
     std::atomic<bool> running_{false};
     std::atomic<bool> is_stopped_{false};
-    static TcpServer *instance_;
+    std::atomic<uint64_t> next_conn_id_{1};
 
     BlockQueue<Request> request_queue_;
     BlockQueue<Response> response_queue_;

@@ -15,6 +15,7 @@ namespace business
     {
         Response resp;
         resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::PONG;
@@ -25,6 +26,7 @@ namespace business
     {
         Response resp;
         resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::ECHO_RESP;
@@ -39,6 +41,7 @@ namespace business
             StatsManager::getInstance().incrementErrors();
             Response resp;
             resp.fd = request.fd;
+            resp.conn_id = request.conn_id;
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
@@ -50,6 +53,7 @@ namespace business
             StatsManager::getInstance().incrementErrors();
             Response resp;
             resp.fd = request.fd;
+            resp.conn_id = request.conn_id;
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
@@ -63,6 +67,7 @@ namespace business
             StatsManager::getInstance().incrementErrors();
             Response resp;
             resp.fd = request.fd;
+            resp.conn_id = request.conn_id;
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
@@ -72,6 +77,7 @@ namespace business
 
         Response resp;
         resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
 
@@ -105,6 +111,7 @@ namespace business
     {
         Response resp;
         resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::STATA_RESP;
@@ -144,6 +151,7 @@ namespace business
     {
         Response resp;
         resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
         resp.type = MessageType::ERROR_RESP;

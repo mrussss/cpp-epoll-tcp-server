@@ -19,7 +19,8 @@ class ProtocolCodec
 {
 public:
     // 解码接口：
-    static DecodeStatus decode(std::string &input_buffer, int fd, std::vector<Request> &out_requests);
+    static DecodeStatus decode(std::string &input_buffer, int fd,
+                               std::vector<Request> &out_requests, uint64_t conn_id);
 
     // 编码接口：
     static std::string encode(const Response &response);

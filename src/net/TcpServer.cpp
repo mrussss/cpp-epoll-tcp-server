@@ -14,6 +14,12 @@
 #include "business/Dispatcher.hpp"
 #include "business/StatsManager.hpp"
 #include "common/Logger.hpp"
+
+namespace
+{
+    constexpr size_t MAX_OUT_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB
+}
+
 // =========================================================
 // 1. 构造与析构
 // =========================================================
@@ -49,6 +55,16 @@ void TcpServer::start()
         std::cerr << "signal registration failed" << std::endl;
     }
     std::cout << "C++ server: press Ctrl+C to exit" << std::endl;
+
+    if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+    {
+        std::cerr << "注册信号忽略失败！" << std::endl;
+    }
+    else
+    {
+        LOG_INFO("%s", "SIGPIPE 已被忽略");
+    }
+
     initServer();
     running_ = true;
 
@@ -64,25 +80,48 @@ void TcpServer::start()
     {
         workers_.emplace_back([this, worker_id = i]()
                               {
-            business::Dispatcher Dispatch;
-             while (true)
-            {
-                Request req;
-                bool ok = request_queue_.pop(req);
-                if (!ok)
-                {
-                    LOG_INFO("Worker %u received shutdown signal, exiting gracefully.",worker_id);
-                     break;
-                }
-                Response resp = Dispatch.dispatch(req);
-                response_queue_.push(resp);
-                LOG_INFO("Worker %u generated Response! fd=%d, type=%d, id=%llu, payload=%s", 
-                worker_id,
-                resp.fd, 
-                static_cast<int>(resp.type),  
-                (unsigned long long)resp.request_id,
-                resp.payload.c_str());
-            } });
+                                  try
+                                  {
+                                      business::Dispatcher Dispatch;
+                                      while (true)
+                                      {
+                                          Request req;
+                                          bool ok = request_queue_.pop(req);
+                                          if (!ok)
+                                          {
+                                              LOG_INFO("Worker %u received shutdown signal, exiting gracefully.", worker_id);
+                                              break;
+                                          }
+try
+{
+     Response resp = Dispatch.dispatch(req);
+                                          response_queue_.push(resp);
+                                          LOG_INFO("Worker %u generated Response! fd=%d, type=%d, id=%llu, payload=%s",
+                                                   worker_id,
+                                                   resp.fd,
+                                                   static_cast<int>(resp.type),
+                                                   (unsigned long long)resp.request_id,
+                                                   resp.payload.c_str());
+}
+catch(const std::exception& e)
+{
+   std::cerr << "返回Response失败: " << e.what() << std::endl;
+}
+catch(...){
+    std::cerr << "返回Response遇到未知问题!" << std::endl;
+}
+
+                                         
+
+                                      }
+                                  }
+                                  catch (const std::exception &e)
+                                  {
+                                      std::cerr << "Worker线程失败: " << e.what() << std::endl;
+                                  } 
+                                catch(...){
+std::cerr << "Worker线程遇到未知问题!" << std::endl;
+                                } });
     }
     loop();
 }
@@ -104,25 +143,40 @@ void TcpServer::stop()
     }
     is_stopped_ = true;
     running_ = false;
-    for (auto &[fd, conn] : connections_)
+
+    if (listen_fd_ != -1)
     {
-        LOG_INFO("closing active client fd=%d...", fd);
-        close(fd);
+        close(listen_fd_);
+        listen_fd_ = -1;
     }
-    close(listen_fd_);
-    close(epfd_);
+    std::vector<int> fds_to_close;
+    for (const auto &[fd, conn] : connections_)
+    {
+        fds_to_close.push_back(fd);
+    }
+    for (int fd : fds_to_close)
+    {
+        closeConnection(fd);
+    }
     request_queue_.stop();
+    response_queue_.stop();
     LOG_INFO("task queue stopped, waiting for all workers to exit");
 
-    for (auto &w : workers_)
+    for (auto &worker : workers_)
     {
-        if (w.joinable())
+        if (worker.joinable())
         {
-            w.join();
+            worker.join();
         }
+    }
+    if (epfd_ != -1)
+    {
+        close(epfd_);
+        epfd_ = -1;
     }
 
     LOG_INFO("all worker threads exited, system shutdown complete.");
+
     return;
 }
 
@@ -273,7 +327,8 @@ void TcpServer::handleAccept()
             exit(EXIT_FAILURE);
         }
         LOG_INFO("New connection: fd=%d", fd);
-        connections_.insert({fd, Connection(fd)});
+        uint64_t conn_id = next_conn_id_.fetch_add(1);
+        connections_.insert({fd, Connection(fd, conn_id)});
         business::StatsManager::getInstance().incrementConnections();
     }
 }
@@ -303,12 +358,7 @@ void TcpServer::handleRead(int fd)
         }
         else if (bytes_read == 0)
         {
-            std::vector<Request> out_requests;
-            ProtocolCodec::decode(conn.input_buffer, fd, out_requests);
-            for (const auto &req : out_requests)
-            {
-                request_queue_.push(req);
-            }
+            LOG_INFO("client fd=%d disconnected", fd);
             closeConnection(fd);
             break;
         }
@@ -317,20 +367,7 @@ void TcpServer::handleRead(int fd)
 
             if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                std::vector<Request> out_requests;
-                DecodeStatus status = ProtocolCodec::decode(conn.input_buffer, fd, out_requests);
-                if (status == DecodeStatus::INVALID_LENGTH)
-                {
-                    // 🚨 触发防御：打印日志，干掉这个连接
-                    closeConnection(fd);
-                    break;
-                }
-
-                // 正常：遍历 out_requests，依次推入任务队列
-                for (auto &req : out_requests)
-                {
-                    request_queue_.push(req);
-                }
+                decodeAndEnqueue(conn);
                 break;
             }
             else
@@ -351,7 +388,7 @@ void TcpServer::handleWrite(int fd)
     Connection &conn = it->second;
     while (!conn.output_buffer.empty())
     {
-        ssize_t sent_bytes = send(fd, conn.output_buffer.data(), conn.output_buffer.size(), 0);
+        ssize_t sent_bytes = send(fd, conn.output_buffer.data(), conn.output_buffer.size(), MSG_NOSIGNAL);
         if (sent_bytes > 0)
         {
             conn.output_buffer.erase(0, sent_bytes);
@@ -392,7 +429,20 @@ void TcpServer::drainResponseQueue()
             continue;
         }
         Connection &conn = it->second;
+        if (conn.conn_id != resp.conn_id)
+        {
+            LOG_INFO("这是一个过期相应.");
+            continue;
+        }
+
         std::string encoded_data = ProtocolCodec::encode(resp);
+        if (conn.output_buffer.size() + encoded_data.size() > MAX_OUT_BUFFER_SIZE)
+        {
+            LOG_INFO("fd=%d output buffer overflow, forcefully closing connection!", conn.fd);
+            closeConnection(conn.fd);
+            continue;
+        }
+
         conn.output_buffer.append(encoded_data);
         struct epoll_event event;
         memset(&event, 0, sizeof(event));
@@ -401,6 +451,27 @@ void TcpServer::drainResponseQueue()
         epoll_ctl(epfd_, EPOLL_CTL_MOD, resp.fd, &event);
     }
 };
+
+bool TcpServer::decodeAndEnqueue(Connection &conn)
+{
+    std::vector<Request> out_requests;
+    DecodeStatus status = ProtocolCodec::decode(
+        conn.input_buffer,
+        conn.fd,
+        out_requests,
+        conn.conn_id);
+    if (status == DecodeStatus::INVALID_LENGTH)
+    {
+        LOG_INFO("client fd=%d sent invalid protocol, closing", conn.fd);
+        closeConnection(conn.fd);
+        return false;
+    }
+    for (auto &req : out_requests)
+    {
+        request_queue_.push(req);
+    }
+    return true;
+}
 
 void TcpServer::closeConnection(int fd)
 {
