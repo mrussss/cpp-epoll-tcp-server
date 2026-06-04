@@ -1,92 +1,219 @@
-# cpp-epoll-tcp-server
+# MessageServer — C++17 Epoll TCP Server
 
-本项目是一个基于 Linux `epoll` 与非阻塞 socket 实现的 TCP 服务端框架。
-
-项目围绕服务端网络编程中的核心流程展开，主要用于学习和实践 C++ 服务端开发中的网络 IO、事件驱动模型、多线程协作和基础工程组织。
+一个基于 Linux `epoll`（ET 边缘触发模式）和非阻塞 socket 实现的轻量级 TCP 消息服务端，支持多消息类型、异步 Worker 线程池、日志落盘与实时监控统计。
 
 ---
 
-## 📂 仓库结构
+## 📂 项目结构
 
-```text
+```
 cpp-epoll-tcp-server
 ├── include/
-│   ├── BlockQueue.hpp      # 阻塞队列，用于 IO 线程与 worker 线程解耦
-│   ├── Connection.hpp      # 连接对象，维护连接状态与输入缓冲区 (处理半包/粘包/OOM拦截)
-│   └── Logger.hpp          # 基于 std::mutex 的线程安全日志模块
+│   ├── common/
+│   │   └── Logger.hpp              # 线程安全日志模块（可变参数模板）
+│   ├── concurrent/
+│   │   └── BlockQueue.hpp           # 阻塞/非阻塞队列，IO 与 Worker 解耦
+│   ├── net/
+│   │   ├── Connection.hpp           # 连接对象（含 conn_id 世代校验）
+│   │   ├── SocketUtil.hpp           # Socket 工具函数（非阻塞设置）
+│   │   └── TcpServer.hpp            # 核心服务器接口
+│   ├── protocol/
+│   │   ├── MessageType.hpp          # 消息类型枚举（PING/ECHO/LOG_PUSH/STATS…）
+│   │   ├── ProtocolCodec.hpp        # 编解码器（定长头+变长体协议）
+│   │   ├── Request.hpp              # 请求数据结构
+│   │   └── Response.hpp             # 响应数据结构
+│   ├── business/
+│   │   ├── Dispatcher.hpp           # 消息分发器
+│   │   ├── Handlers.hpp             # 业务处理函数声明
+│   │   ├── LogStorage.hpp           # 日志落盘存储
+│   │   └── StatsManager.hpp         # 全局监控统计
+│   └── nlohmann/
+│       └── json.hpp                 # JSON 解析库（单头文件）
 ├── src/
-│   └── server_tcp.cpp      # 服务端主程序 (epoll 事件循环、线程池分配)
-├── tests/                  # Python 测试脚本 (包含基础发包、毒包测试与高并发压测)
-├── CMakeLists.txt          # CMake 构建配置文件
-└── .gitignore
+│   ├── main.cpp                     # 服务端入口
+│   ├── net/
+│   │   └── TcpServer.cpp            # epoll 事件循环（核心）
+│   ├── protocol/
+│   │   └── ProtocolCodec.cpp        # 粘包/半包处理 & 编码解码
+│   └── business/
+│       ├── Dispatcher.cpp           # 请求分发
+│       ├── Handlers.cpp             # 业务处理实现
+│       ├── LogStorage.cpp           # 日志追加写入
+│       └── StatsManager.cpp         # 监控指标管理
+├── scripts/
+│   ├── test_client.py               # 基础连通性测试
+│   ├── test_client1.py              # 半包/粘包模拟
+│   ├── test_client2.py              # 恶意毒包测试（OOM 熔断）
+│   └── stress_test.py               # 高并发压测（100线程 × 100消息）
+├── logs/
+│   └── access.log                   # 业务日志文件
+├── docs/
+│   └── v4.1修改建议.md              # 稳定性打磨技术文档
+├── CMakeLists.txt
+└── README.md
 ```
+
+---
 
 ## 🛠️ 技术栈
 
-* **C++17**
-* **Linux 网络编程**: TCP socket, `epoll` (ET 边缘触发模式), 非阻塞 IO (Non-blocking IO)
-* **多线程并发**: `std::thread`, `std::mutex`, `std::condition_variable`
-* **构建与调试**: CMake, GDB, AddressSanitizer (ASan)
-* **测试**: Python 
+| 层级 | 技术 |
+|---|---|
+| 语言 | **C++17** |
+| 网络 IO | **Linux epoll**（Edge Triggered）+ 非阻塞 socket |
+| 并发模型 | **多线程**：`std::thread` + `std::mutex` + `std::condition_variable` |
+| 协议 | **自定义长度前缀协议**（4字节网络序长度 + body） |
+| 构建 | **CMake** + g++ |
+| JSON | **nlohmann/json**（单头文件） |
+| 测试 | **Python 3**（socket + struct 发包） |
 
-## ✨ 核心功能与亮点
+---
 
-1.  **基于 epoll ET 的事件循环**：服务端使用 `epoll` 监听连接事件和读事件，并采用 ET (Edge Triggered) 边缘触发模式。配合非阻塞 socket，避免单个连接阻塞整个事件循环。
-2.  **非阻塞 accept 与 recv**：在 ET 模式下，采用 `while(true)` 循环读取的方式，直到返回 `EAGAIN` 或 `EWOULDBLOCK`，确保一次性榨干缓冲区数据，防止事件遗漏。
-3.  **Connection 连接档案封装**：通过 `Connection` 类维护单个客户端连接的上下文。每个连接独立管理自己的客户端 fd 和 `input_buffer`（输入缓冲区），彻底解耦底层 IO 与上层协议解析。
-4.  **长度前缀协议解析 (解决粘包/半包)**：
-    * **协议格式**：`| 4字节网络字节序长度 | 变长消息体 |`
-    * **处理机制**：数据先统一写入 `input_buffer`，解析模块再循环判断长度。完美解决 TCP 字节流传输中产生的**半包**（分片到达）和**粘包**（多条连发）问题。
-    * **防御编程**：内置最大 Payload 拦截机制，遇到恶意超大报文直接触发 OOM 熔断并物理断开连接。
-5.  **IO 线程与 worker 线程彻底解耦**：
-    * 使用线程安全的 `BlockQueue<std::string>` 作为任务传送带。
-    * IO 线程只负责 `epoll_wait`、数据读取和切包，将切好的完整报文直接 Push 入队。
-    * 业务（Worker）线程只负责从队列 Pop 任务并处理，避免耗时业务卡死网络 IO。
-6.  **智能 worker 线程池**：启动时根据服务器物理核心数动态拉起 Worker 线程。队列为空时自动休眠（避免 CPU 空转），队列关闭时优雅退出。
-7.  **优雅退出与资源大扫除**：捕获 `SIGINT` (Ctrl+C) 信号，依次安全关闭所有存活的客户端 fd、释放 epoll fd、停止任务队列并 `join` 等待所有 worker 线程安全撤退。
+## ✨ 核心特性
+
+### 网络层
+- **epoll ET 事件循环**：采用边缘触发模式，while 循环榨干缓冲区直到 EAGAIN。
+- **非阻塞 accept**：空的 namespace 里一次性处理完所有待 accept 的连接。
+- **IO 与 Worker 解耦**：IO 线程只负责 epoll_wait + recv + 解码，将完整 Request 入队；Worker 线程从队列取任务执行业务，避免耗时操作阻塞网络循环。
+- **容量自适应的 Worker 线程池**：根据 CPU 核心数动态决定 Worker 数量（上限 4），队列空时休眠，stop 时优雅退出。
+
+### 协议层
+- **长度前缀协议**：`| 4 字节网络序 body_length | 1 字节 version | 1 字节 type | 8 字节 request_id | 变长 payload |`
+- **粘包/半包处理**：解码器逐字节游标解析，剩余数据回退到 input_buffer 等待下次事件。
+- **NEED_MORE_DATA 语义**：精确区分「数据不够」和「解析完成」，避免半包误处理。
+- **协议边界校验**：校验最小固定头（10 字节）和最大 body（`FIXED_BODY_SIZE + MAX_PAYLOAD_SIZE`），恶意超长包直接拒绝并断开。
+
+### 业务层
+- **PING / PONG**：基础连通性探测。
+- **ECHO**：回显测试。
+- **LOG_PUSH / LOG_ACK**：JSON 格式日志上报、校验与落盘。
+- **STATS / STATS_RESP**：实时服务器监控统计（请求数、错误数、流量、队列积压等）。
+
+### 可靠性打磨（V4.1）
+- **conn_id 世代校验**：每个连接分配独立递增 ID，响应发送前校验 `conn_id` 是否匹配，根除 fd 复用导致的跨连接数据串台。
+- **Worker 异常隔离**：双层 try-catch 防护，业务异常不会击穿线程边界导致进程退出。
+- **SIGPIPE 防护**：进程级 `signal(SIGPIPE, SIG_IGN)` + 每路 send 使用 `MSG_NOSIGNAL`。
+- **输出缓冲区背压**：单连接 output_buffer 上限 2MB，超限直接断开慢客户端防止 OOM。
+- **幂等关闭**：`closeConnection()` 先确认 fd 存在再操作，`decrementConnections()` CAS 下溢保护。
+- **优雅停机**：`stop()` 先收集 fd 再逐个关闭，确保 epfd 在 closeConnection 之后才关闭。
+- **epoll 错误处理**：`EPOLL_CTL_ADD` 失败仅关闭 client fd 不 exit 进程；`modifyConnectionEvents()` 统一封装返回值检查。
+- **JSON 字段强校验**：使用 nlohmann/json 解析器代替字符串 find，确保 key 存在且类型正确。
+
+---
 
 ## 🚀 快速开始
 
-### 1. 编译项目
+### 前置条件
+- Linux 环境（WSL2 亦可）
+- g++ 支持 C++17
+- CMake >= 3.10
+- Python 3（运行测试脚本）
 
-请确保你的 Linux 环境已安装 `g++` 和 `cmake`。
+### 编译
 
 ```bash
-# 在项目根目录下创建 build 文件夹
-mkdir build
-cd build
-
-# 执行 CMake 生成 Makefile 并编译
+mkdir build && cd build
 cmake ..
-make
+make -j$(nproc)
 ```
 
-### 2. 运行服务端
-
-在 `build` 目录下运行编译生成的服务端程序：
+### 运行服务端
 
 ```bash
-./server_tcp
+cd build
+./message_server
+# 服务端默认监听 8080 端口，Ctrl+C 触发优雅关闭
 ```
-*服务端默认监听本地 `8080` 端口。启动后可以通过 `Ctrl+C` 触发服务端优雅退出流程。*
 
-### 3. 执行测试
-
-项目中的 `tests/` 目录存放了多个 Python 测试脚本，用于模拟极其恶劣的网络环境和并发场景：
+### 运行测试
 
 ```bash
-# 新开一个终端，进入测试目录
-cd tests/
+# 新开一个终端，进入 scripts/ 目录
 
-# 1. 基础连通性测试
+# 1. 基础连通性测试（PING / ECHO / LOG_PUSH）
 python3 test_client.py
 
-# 2. 极度卡顿模拟 (测试半包与粘包处理能力)
+# 2. 半包与粘包模拟
 python3 test_client1.py
 
-# 3. 恶意毒包测试 (发送伪造的超大 Header，测试防 OOM 熔断)
+# 3. 恶意毒包测试（伪造超大 body_length，测试 OOM 熔断）
 python3 test_client2.py
 
-# 4. 高并发压测 (拉起 100 个线程，狂轰 10000 条消息)
+# 4. 高并发压测（100 个并发连接各发 100 条消息，共计 10000 条）
 python3 stress_test.py
 ```
+
+---
+
+## 📊 消息协议
+
+### 请求格式（Request）
+
+```
+| 4 字节 body_length (网络序) | 1 字节 version | 1 字节 type | 8 字节 request_id (网络序) | N 字节 payload |
+```
+
+### 支持的 MessageType
+
+| Type | 请求 | 响应 | 说明 |
+|---|---|---|---|
+| 1 → 5 | `PING` | `PONG` | 连通性探测 |
+| 2 → 6 | `ECHO` | `ECHO_RESP` | 回显（原样返回 payload） |
+| 3 → 8 | `LOG_PUSH` | `LOG_ACK` | JSON 日志上报与落盘 |
+| 4 → 9 | `STATS` | `STATS_RESP` | 实时服务器监控统计 |
+| 其他 → 7 | — | `ERROR_RESP` | 未知消息类型兜底 |
+
+### 错误响应格式
+
+```json
+{"status": 400, "message": "具体的错误描述"}
+```
+
+### LOG_PUSH 要求的 JSON 格式
+
+```json
+{
+  "level": "INFO",
+  "service": "auth-service",
+  "message": "user login success"
+}
+```
+
+三个字段均为必填且必须为字符串类型，否则返回 `400 invalid log format`。
+
+---
+
+## 📈 监控统计
+
+请求 `STATS`（type=4）可获得 JSON 格式的实时服务器状态：
+
+```json
+{
+  "total_requests": 1024,
+  "total_logs": 512,
+  "total_errors": 0,
+  "total_recv_bytes": 65536,
+  "total_sent_bytes": 65536,
+  "active_connections": 5,
+  "total_request_queue_backlog": 0,
+  "total_response_queue_backlog": 0
+}
+```
+
+---
+
+## 🔧 构建配置
+
+`CMakeLists.txt` 编译目标：`message_server`
+
+| 选项 | 值 |
+|---|---|
+| C++ 标准 | C++17 |
+| 编译选项 | `-Wall -Wextra -O2` |
+| 外部依赖 | `Threads::Threads`（系统多线程库） |
+
+---
+
+## 📝 License
+
+MIT

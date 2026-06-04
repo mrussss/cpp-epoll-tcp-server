@@ -121,7 +121,7 @@ namespace business
         resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
-        resp.type = MessageType::STATA_RESP;
+        resp.type = MessageType::STATS_RESP;
 
         uint64_t requests = StatsManager::getInstance().getTotalRequests();
         uint64_t logMessages = StatsManager::getInstance().getTotalLogMessages();
