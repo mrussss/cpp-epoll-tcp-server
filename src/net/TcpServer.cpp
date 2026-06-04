@@ -17,11 +17,11 @@
 
 namespace
 {
-    constexpr size_t MAX_OUT_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB
+    constexpr size_t MAX_OUT_BUFFER_SIZE = 2 * 1024 * 1024;
 }
 
 // =========================================================
-// 1. 构造与析构
+// 1. Construction & Destruction
 // =========================================================
 TcpServer::TcpServer(int port) : port_(port), listen_fd_(-1), epfd_(-1), running_(false) {}
 
@@ -31,7 +31,7 @@ TcpServer::~TcpServer()
 }
 
 // =========================================================
-// 2. 启动服务器核心流程
+// 2. Server Start
 // =========================================================
 
 TcpServer *TcpServer::instance_ = nullptr;
@@ -39,16 +39,11 @@ void TcpServer::static_sigint_handler([[maybe_unused]] int sig)
 {
     if (instance_)
     {
-        instance_->running_ = false; // 按下 Ctrl+C 时，把 running_ 设为 false
+        instance_->running_ = false;
     }
 }
 void TcpServer::start()
 {
-    // [你的搬运任务]
-    // 1. 调用 initServer() 完成底层的 bind/listen/epoll 挂载
-    // 2. 将 running_ 设为 true
-    // 3. 把原来 server_tcp.cpp 里 "获取核心数硬件并发" 和 "拉起 Worker 线程池" 的 for 循环代码搬到这里。
-    // 4. 最后调用 loop() 进入事件死循环监听。
     instance_ = this;
     if (std::signal(SIGINT, static_sigint_handler) == SIG_ERR)
     {
@@ -58,11 +53,11 @@ void TcpServer::start()
 
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
     {
-        std::cerr << "注册信号忽略失败！" << std::endl;
+        std::cerr << "failed to ignore SIGPIPE" << std::endl;
     }
     else
     {
-        LOG_INFO("%s", "SIGPIPE 已被忽略");
+        LOG_INFO("%s", "SIGPIPE ignored");
     }
 
     initServer();
@@ -105,10 +100,10 @@ try
 }
 catch(const std::exception& e)
 {
-   std::cerr << "返回Response失败: " << e.what() << std::endl;
+   std::cerr << "failed to push response: " << e.what() << std::endl;
 }
 catch(...){
-    std::cerr << "返回Response遇到未知问题!" << std::endl;
+    std::cerr << "unknown error pushing response!" << std::endl;
 }
 
                                          
@@ -117,10 +112,10 @@ catch(...){
                                   }
                                   catch (const std::exception &e)
                                   {
-                                      std::cerr << "Worker线程失败: " << e.what() << std::endl;
-                                  } 
+                                      std::cerr << "worker thread failed: " << e.what() << std::endl;
+                                  }
                                 catch(...){
-std::cerr << "Worker线程遇到未知问题!" << std::endl;
+std::cerr << "worker thread unknown error!" << std::endl;
                                 } });
     }
     loop();
@@ -128,15 +123,6 @@ std::cerr << "Worker线程遇到未知问题!" << std::endl;
 
 void TcpServer::stop()
 {
-    // [你的搬运任务]
-    // 这里放程序退出的清理逻辑。
-    // 1. 检查 running_ 状态，如果已经是 false 就直接 return（防止重复关闭）。
-    // 2. 设 running_ 为 false。
-    // 3. 把原来 main() 最后面 "准备执行全链路大扫除" 下方的代码搬过来：
-    //    - 遍历 connections__，调用 close() 关掉存活的 fd。
-    //    - 关闭 listen_fd_ 和 epfd__。
-    //    - 调用 request_queue_.stop()。
-    //    - 遍历 workers_ 并调用 join()。
     if (is_stopped_)
     {
         return;
@@ -181,19 +167,10 @@ void TcpServer::stop()
 }
 
 // =========================================================
-// 3. 底层网络细节抽象
+// 3. Network Initialization
 // =========================================================
 void TcpServer::initServer()
 {
-    // [你的搬运任务]
-    // 把原来散落在 main() 最开头的网络底座动作搬过来：
-    // 1. socket() 创建 listen_fd_
-    // 2. setsockopt() 设置 SO_REUSEADDR 端口复用
-    // 3. bind() 绑定端口 (注意：端口用 port_ 成员变量替代原来的 8080)
-    // 4. listen()
-    // 5. 调用 setNonBlocking(listen_fd_)
-    // 6. epoll_create1() 创建 epfd__
-    // 7. 声明 epoll_event，把 listen_fd_ 加入 epoll (EPOLLIN | EPOLLET)
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -290,13 +267,10 @@ void TcpServer::loop()
 }
 
 // =========================================================
-// 4. IO 事件处理抽象
+// 4. I/O Event Handlers
 // =========================================================
 void TcpServer::handleAccept()
 {
-    // [你的搬运任务]
-    // 把原来 if (fd == listen_fd) 里面的 while(true) { accept... } 循环搬过来。
-    // 逻辑流：accept 成功 -> setNonBlocking -> 挂载到 epoll -> connections__.insert()。
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
     int fd;
@@ -335,12 +309,6 @@ void TcpServer::handleAccept()
 
 void TcpServer::handleRead(int fd)
 {
-    // [你的搬运任务]
-    // 把原来处理普通客户端 fd (else 分支) 里的 while(true) { recv... } 逻辑搬过来。
-    // 注意调整：
-    // 1. 原来是用 fd，现在函数参数叫 fd。
-    // 2. 先从 connections__ 找到对应的 Connection 对象。
-    // 3. recv 数据，如果返回 0 (断开) 或者解析出错触发防御熔断，不要再到处写那三行关闭代码了，直接调用 closeConnection(fd)。
     auto it = connections_.find(fd);
     if (it == connections_.end())
         return;
@@ -430,7 +398,7 @@ void TcpServer::drainResponseQueue()
         Connection &conn = it->second;
         if (conn.conn_id != resp.conn_id)
         {
-            LOG_INFO("这是一个过期相应.");
+            LOG_INFO("stale response (conn_id mismatch)");
             continue;
         }
 

@@ -7,7 +7,7 @@
 
 inline std::mutex g_log_mutex;
 
-// 【现代 C++ 升级】使用可变参数模板替换掉老旧的 C 风格宏
+// variadic template logging
 template <typename... Args>
 inline void LOG_INFO(const char *fmt, Args... args)
 {
