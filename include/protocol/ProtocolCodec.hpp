@@ -11,8 +11,8 @@ constexpr uint32_t MAX_PAYLOAD_SIZE = 4 * 1024 * 1024;
 enum class DecodeStatus
 {
     OK,
-    NEED_MORE_DATA, // 数据不够 4 字节，或者不够完整的 body_length
-    INVALID_LENGTH, // 长度字段异常巨大 (防 OOM)
+    NEED_MORE_DATA, // incomplete header or body
+    INVALID_LENGTH, // invalid length guard (OOM prevention)
 };
 
 class ProtocolCodec

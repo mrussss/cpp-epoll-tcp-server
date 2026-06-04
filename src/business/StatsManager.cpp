@@ -64,7 +64,14 @@ namespace business
 
     void StatsManager::decrementConnections()
     {
-        active_connections--;
+        uint64_t current = active_connections.load();
+        while (current > 0)
+        {
+            if (active_connections.compare_exchange_weak(current, current - 1))
+            {
+                return;
+            }
+        }
     }
 
     uint64_t StatsManager::getConnections() const

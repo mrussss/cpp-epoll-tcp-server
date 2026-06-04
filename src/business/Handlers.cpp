@@ -7,6 +7,7 @@
 #include "business/StatsManager.hpp"
 #include "business/LogStorage.hpp"
 #include "net/TcpServer.hpp"
+#include "nlohmann/json.hpp"
 
 namespace business
 {
@@ -45,7 +46,7 @@ namespace business
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"payload is empty"})";
+            resp.payload = R"({"status":400,"message":"payload is empty"})";
             return resp;
         }
         if (request.payload.size() > 4096)
@@ -57,22 +58,29 @@ namespace business
             resp.version = request.version;
             resp.request_id = request.request_id;
             resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"payload too large"})";
+            resp.payload = R"({"status":400,"message":"payload too large"})";
             return resp;
         }
-        if (request.payload.find("level") == std::string::npos ||
-            request.payload.find("service") == std::string::npos ||
-            request.payload.find("message") == std::string::npos)
+        try
+        {
+            auto j = nlohmann::json::parse(request.payload);
+
+            if (!j.is_object() ||
+                !j.contains("level") ||
+                !j.contains("service") ||
+                !j.contains("message") ||
+                !j["level"].is_string() ||
+                !j["service"].is_string() ||
+                !j["message"].is_string())
+            {
+                StatsManager::getInstance().incrementErrors();
+                return makeErrorResponse(request, 400, "invalid log format");
+            }
+        }
+        catch (const nlohmann::json::parse_error &)
         {
             StatsManager::getInstance().incrementErrors();
-            Response resp;
-            resp.fd = request.fd;
-            resp.conn_id = request.conn_id;
-            resp.version = request.version;
-            resp.request_id = request.request_id;
-            resp.type = MessageType::ERROR_RESP;
-            resp.payload = R"({"invalid log format"})";
-            return resp;
+            return makeErrorResponse(request, 400, "invalid json");
         }
 
         Response resp;
@@ -90,7 +98,6 @@ namespace business
             << " request_id=" << request.request_id
             << " payload=" << request.payload;
 
-        StatsManager::getInstance().incrementRequests();
         bool is_written = LogStorage::getInstance().append(oss.str());
         if (is_written)
         {
@@ -114,7 +121,7 @@ namespace business
         resp.conn_id = request.conn_id;
         resp.version = request.version;
         resp.request_id = request.request_id;
-        resp.type = MessageType::STATA_RESP;
+        resp.type = MessageType::STATS_RESP;
 
         uint64_t requests = StatsManager::getInstance().getTotalRequests();
         uint64_t logMessages = StatsManager::getInstance().getTotalLogMessages();
@@ -156,6 +163,22 @@ namespace business
         resp.request_id = request.request_id;
         resp.type = MessageType::ERROR_RESP;
         resp.payload = R"({"status":400,"message":"unknown type"})";
+        return resp;
+    }
+
+    Response makeErrorResponse(const Request &request, int status, const std::string &message)
+    {
+        Response resp;
+        resp.fd = request.fd;
+        resp.conn_id = request.conn_id;
+        resp.version = request.version;
+        resp.request_id = request.request_id;
+        resp.type = MessageType::ERROR_RESP;
+
+        nlohmann::json j;
+        j["status"] = status;
+        j["message"] = message;
+        resp.payload = j.dump();
         return resp;
     }
 

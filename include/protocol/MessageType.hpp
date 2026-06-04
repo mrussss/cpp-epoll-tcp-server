@@ -12,5 +12,5 @@ enum class MessageType : uint8_t
     ECHO_RESP = 6,
     ERROR_RESP = 7,
     LOG_ACK = 8,
-    STATA_RESP = 9
+    STATS_RESP = 9
 };
